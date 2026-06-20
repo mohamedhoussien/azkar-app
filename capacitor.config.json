@@ -1,8 +1,0 @@
-{
-  "appId": "com.azkar.app",
-  "appName": "الأذكار",
-  "webDir": "www",
-  "server": {
-    "androidScheme": "https"
-  }
-}
