@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: npm install
+      - name: Prepare icon
+        run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick
+          mkdir -p resources
+          convert www/icon-512.png -resize 1024x1024 resources/icon.png
+      - run: npx cap add android
+      - name: Add VIBRATE permission
+        run: |
+          MAN=android/app/src/main/AndroidManifest.xml
+          grep -q "android.permission.VIBRATE" "$MAN" || sed -i 's#</manifest>#    <uses-permission android:name="android.permission.VIBRATE"/>\n</manifest>#' "$MAN"
+      - name: Generate icons
+        run: npx capacitor-assets generate --android || echo "skip"
+      - run: npx cap sync android
+      - name: Create keystore
+        run: |
+          keytool -genkeypair -v -keystore release.keystore -alias azkar \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass azkar12345 -keypass azkar12345 \
+            -dname "CN=Azkar, OU=App, O=Azkar, L=Cairo, S=Cairo, C=EG"
+      - name: Build release
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
+      - name: Sign APK
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          "$BT/zipalign" -v -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk azkar-aligned.apk
+          "$BT/apksigner" sign --ks release.keystore --ks-key-alias azkar --ks-pass pass:azkar12345 --key-pass pass:azkar12345 --out azkar-signed.apk azkar-aligned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azkar-apk
+          path: azkar-signed.apk
+          if-no-files-found: error
